@@ -1,188 +1,213 @@
+// src/services/kustomerService.js
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-cat > backend/server-improved.js << 'EOF'
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-dotenv.config({ path: join(__dirname, '.env') });
-
-const app = express();
-const PORT = process.env.PORT || 5000;
-
-app.use(cors());
-app.use(express.json());
-
-// Estado de la conexión
-let connectionStatus = {
-  isConnected: false,
-  lastCheck: null,
-  error: null,
-  mode: 'mock'
-};
-
-// Verificar conexión con Kustomer
-async function checkKustomerConnection() {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    
-    const response = await fetch('https://api.prod1.kustomer.com/v1/users/current', {
-      headers: {
-        'Authorization': `Bearer ${process.env.KUSTOMER_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      signal: controller.signal
-    });
-    
-    clearTimeout(timeout);
-    
-    if (response.ok) {
-      connectionStatus = {
-        isConnected: true,
-        lastCheck: new Date(),
-        error: null,
-        mode: 'live'
-      };
-      console.log('✅ Conexión con Kustomer establecida');
-      return true;
-    }
-  } catch (error) {
-    connectionStatus = {
-      isConnected: false,
-      lastCheck: new Date(),
-      error: error.message,
-      mode: 'mock'
-    };
-    console.log('⚠️ No se pudo conectar con Kustomer, usando datos mock');
+class KustomerService {
+  constructor() {
+    this.baseUrl = API_BASE_URL;
   }
-  return false;
-}
 
-// Verificar conexión al iniciar
-checkKustomerConnection();
-
-// Verificar cada 5 minutos
-setInterval(checkKustomerConnection, 300000);
-
-// Ruta de estado
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK',
-    kustomer: connectionStatus,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Función para generar datos mock realistas
-function generateMockData(endpoint) {
-  const now = new Date();
-  
-  switch(endpoint) {
-    case '/v1/users/current':
-      return {
-        data: {
-          type: 'user',
-          id: 'mock-user-123',
-          attributes: {
-            email: 'dashboard@bia-energy.com',
-            displayName: 'CX Dashboard User',
-            name: 'Dashboard API',
-            role: 'org.admin'
-          }
-        }
-      };
+  async fetchFromBackend(endpoint, params) {
+    try {
+      const queryString = params 
+        ? '?' + new URLSearchParams(params).toString() 
+        : '';
       
-    case '/v1/conversations':
-      const conversations = [];
-      const teams = ['Soporte Técnico', 'Ventas', 'Billing', 'General'];
-      const agents = ['Ana García', 'Carlos López', 'María Rodríguez', 'Juan Pérez'];
-      const statuses = ['done', 'open', 'snoozed'];
+      console.log(`🔍 Fetching from: ${this.baseUrl}/kustomer${endpoint}${queryString}`);
       
-      for (let i = 0; i < 100; i++) {
-        const createdDate = new Date(now);
-        createdDate.setDate(createdDate.getDate() - Math.floor(Math.random() * 30));
-        
-        const responseTime = Math.random() * 5;
-        const firstResponseDate = new Date(createdDate.getTime() + responseTime * 3600000);
-        
-        conversations.push({
-          type: 'conversation',
-          id: `conv-${i}`,
-          attributes: {
-            name: `Conversación #${1000 + i}`,
-            status: statuses[Math.floor(Math.random() * statuses.length)],
-            priority: Math.floor(Math.random() * 5),
-            createdAt: createdDate.toISOString(),
-            firstResponseAt: firstResponseDate.toISOString(),
-            closedAt: Math.random() > 0.3 ? new Date().toISOString() : null,
-            satisfactionScore: Math.random() > 0.7 ? Math.floor(Math.random() * 2) + 4 : null,
-            tags: ['email', 'support'],
-            custom: {
-              team: teams[Math.floor(Math.random() * teams.length)],
-              agent: agents[Math.floor(Math.random() * agents.length)],
-              firstResponseTime: responseTime,
-              csat: Math.random() * 2 + 3,
-              contactRate: Math.floor(Math.random() * 10) + 1,
-              channel: ['email', 'chat', 'phone'][Math.floor(Math.random() * 3)]
-            }
-          }
-        });
+      const response = await fetch(`${this.baseUrl}/kustomer${endpoint}${queryString}`);
+      
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
       
-      return {
-        data: conversations,
-        meta: {
-          page: 1,
-          pages: 1,
-          total: conversations.length
-        }
-      };
+      const data = await response.json();
+      console.log(`📊 Response data:`, data);
       
-    default:
-      return { data: [] };
+      return data;
+    } catch (error) {
+      console.error('❌ Error fetching from backend:', error);
+      throw error;
+    }
   }
-}
 
-// Proxy inteligente para Kustomer
-app.use('/api/kustomer', async (req, res) => {
-  const endpoint = req.path;
-  
-  // Si hay conexión, intentar obtener datos reales
-  if (connectionStatus.isConnected) {
+  async getMetrics(startDate, endDate) {
     try {
-      const response = await fetch(`https://api.prod1.kustomer.com${endpoint}`, {
-        method: req.method,
-        headers: {
-          'Authorization': `Bearer ${process.env.KUSTOMER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
+      console.log('📊 Obteniendo métricas del backend...');
+      console.log('📅 Rango de fechas:', startDate.toISOString(), 'a', endDate.toISOString());
+      
+      // Intentar primero con el endpoint de conversaciones
+      const response = await this.fetchFromBackend('/v1/conversations', {
+        'page[size]': '100',
+        'filter[createdAt]': `${startDate.toISOString()},${endDate.toISOString()}`,
+        'include': 'assignedTeams,assignedUsers'
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        return res.json(data);
+      let conversations = response.data || [];
+      
+      // Si no hay datos, intentar sin filtros para debug
+      if (conversations.length === 0) {
+        console.log('⚠️ No se encontraron conversaciones con filtros, intentando sin filtros...');
+        const allResponse = await this.fetchFromBackend('/v1/conversations');
+        conversations = allResponse.data || [];
+        console.log(`📊 Total de conversaciones sin filtro: ${conversations.length}`);
       }
+      
+      // También obtener información de equipos y usuarios si es posible
+      let teams = [];
+      let users = [];
+      
+      try {
+        const teamsResponse = await this.fetchFromBackend('/v1/teams');
+        teams = teamsResponse.data || [];
+        console.log(`👥 Teams encontrados: ${teams.length}`);
+      } catch (e) {
+        console.log('⚠️ No se pudieron obtener teams');
+      }
+      
+      try {
+        const usersResponse = await this.fetchFromBackend('/v1/users');
+        users = usersResponse.data || [];
+        console.log(`👤 Users encontrados: ${users.length}`);
+      } catch (e) {
+        console.log('⚠️ No se pudieron obtener users');
+      }
+      
+      // Transformar datos de Kustomer a CXData
+      const metrics = conversations
+        .filter(conv => {
+          const convDate = new Date(conv.attributes.createdAt);
+          return convDate >= startDate && convDate <= endDate;
+        })
+        .map(conv => {
+          // Calcular tiempo de primera respuesta
+          let firstResponseTime = 0;
+          
+          // Opción 1: Usar firstDone.time (en milisegundos)
+          if (conv.attributes.firstDone?.time) {
+            firstResponseTime = conv.attributes.firstDone.time / (1000 * 60 * 60); // convertir ms a horas
+          }
+          // Opción 2: Usar firstResponse si existe
+          else if (conv.attributes.firstResponse?.createdAt) {
+            const created = new Date(conv.attributes.createdAt);
+            const firstResp = new Date(conv.attributes.firstResponse.createdAt);
+            firstResponseTime = (firstResp.getTime() - created.getTime()) / (1000 * 60 * 60);
+          }
+          // Opción 3: Usar firstMessageOut
+          else if (conv.attributes.firstMessageOut?.sentAt) {
+            const created = new Date(conv.attributes.createdAt);
+            const firstOut = new Date(conv.attributes.firstMessageOut.sentAt);
+            firstResponseTime = (firstOut.getTime() - created.getTime()) / (1000 * 60 * 60);
+          }
+          
+          // Obtener CSAT - en Kustomer parece estar en satisfaction o satisfactionLevel
+          let csat = conv.attributes.satisfaction || 0;
+          if (csat === 0 && conv.attributes.satisfactionLevel?.answers?.length > 0) {
+            // Intentar obtener de satisfactionLevel si existe
+            const lastAnswer = conv.attributes.satisfactionLevel.answers[conv.attributes.satisfactionLevel.answers.length - 1];
+            csat = lastAnswer?.rating || 0;
+          }
+          
+          // Obtener equipo - primero intentar con los teams asignados
+          let team = 'General';
+          let teamId = '';
+          
+          if (conv.attributes.assignedTeams && conv.attributes.assignedTeams.length > 0) {
+            teamId = conv.attributes.assignedTeams[0];
+          } else if (conv.attributes.firstDone?.createdByTeams?.length > 0) {
+            teamId = conv.attributes.firstDone.createdByTeams[0];
+          } else if (conv.attributes.lastDone?.createdByTeams?.length > 0) {
+            teamId = conv.attributes.lastDone.createdByTeams[0];
+          }
+          
+          // Buscar el nombre del equipo
+          if (teamId && teams.length > 0) {
+            const teamObj = teams.find(t => t.id === teamId);
+            team = teamObj?.attributes?.displayName || teamObj?.attributes?.name || 'General';
+          }
+          
+          // Obtener agente - similar a equipos
+          let agent = 'Sin asignar';
+          let userId = '';
+          
+          if (conv.attributes.assignedUsers && conv.attributes.assignedUsers.length > 0) {
+            userId = conv.attributes.assignedUsers[0];
+          } else if (conv.attributes.firstDone?.createdBy) {
+            userId = conv.attributes.firstDone.createdBy;
+          } else if (conv.attributes.lastDone?.createdBy) {
+            userId = conv.attributes.lastDone.createdBy;
+          }
+          
+          // Buscar el nombre del usuario
+          if (userId && users.length > 0) {
+            const userObj = users.find(u => u.id === userId);
+            agent = userObj?.attributes?.displayName || userObj?.attributes?.name || userObj?.attributes?.email || 'Sin asignar';
+          }
+          
+          // Canal de la conversación
+          const channel = conv.attributes.channels?.[0] || 'email';
+          
+          return {
+            date: conv.attributes.createdAt.split('T')[0],
+            team,
+            queue: channel.charAt(0).toUpperCase() + channel.slice(1),
+            agent,
+            firstResponseTime: firstResponseTime || 0,
+            csat: csat || 0,
+            contactRate: conv.attributes.messageCount || 1
+          };
+        });
+      
+      console.log(`✅ Se transformaron ${metrics.length} métricas`);
+      
+      // Si no hay datos, devolver algunos datos de ejemplo
+      if (metrics.length === 0) {
+        console.log('⚠️ No hay datos reales, devolviendo datos de ejemplo');
+        return this.generateSampleData(startDate, endDate);
+      }
+      
+      return metrics;
     } catch (error) {
-      console.error('Error al obtener datos reales:', error.message);
+      console.error('❌ Error al obtener métricas:', error);
+      // En caso de error, devolver datos de ejemplo
+      return this.generateSampleData(startDate, endDate);
     }
   }
-  
-  // Si no hay conexión o falló, usar datos mock
-  console.log(`📊 Devolviendo datos MOCK para: ${endpoint}`);
-  const mockData = generateMockData(endpoint);
-  res.json(mockData);
-});
 
-app.listen(PORT, () => {
-  console.log(`✅ Servidor backend corriendo en http://localhost:${PORT}`);
-  console.log(`📍 Endpoint de salud: http://localhost:${PORT}/api/health`);
-  console.log(`🔌 Modo: ${connectionStatus.mode === 'mock' ? 'MOCK (Sin conexión a Kustomer)' : 'LIVE'}`);
-  console.log(`💡 El servidor intentará conectar con Kustomer cada 5 minutos`);
-});
-EOF
+  generateSampleData(startDate, endDate) {
+    const data = [];
+    const teams = ['Soporte', 'Ventas', 'Billing'];
+    const agents = ['Ana García', 'Carlos López', 'María Rodríguez'];
+    
+    // Generar datos para cada día en el rango
+    const currentDate = new Date(startDate);
+    while (currentDate <= endDate) {
+      for (let i = 0; i < 3; i++) {
+        data.push({
+          date: currentDate.toISOString().split('T')[0],
+          team: teams[Math.floor(Math.random() * teams.length)],
+          queue: 'Email',
+          agent: agents[Math.floor(Math.random() * agents.length)],
+          firstResponseTime: Math.random() * 5,
+          csat: 3 + Math.random() * 2,
+          contactRate: Math.floor(Math.random() * 10) + 1
+        });
+      }
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    return data;
+  }
+
+  async testConnection() {
+    try {
+      const response = await this.fetchFromBackend('/v1/users/current');
+      console.log('✅ Conexión exitosa:', response);
+      return true;
+    } catch (error) {
+      console.error('❌ Error de conexión:', error);
+      return false;
+    }
+  }
+}
+
+export const kustomerService = new KustomerService();
